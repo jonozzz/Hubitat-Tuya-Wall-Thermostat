@@ -1,6 +1,6 @@
 /* groovylint-disable DuplicateListLiteral, LineLength, MethodCount, NestedBlockDepth, PublicMethodsBeforeNonPublicMethods, SpaceAfterClosingBrace, UnnecessaryGetter, UnusedPrivateMethod */
 /**
- *  Tuya Wall Thermostat driver for Hubitat Elevation
+ *  Tuya Wall Thermostat driver for Hubitat Elevation (obsolete, use 'Tuya Zigbee TRVs and Thermostats' driver instead)
  *
  *  https://community.hubitat.com/t/release-tuya-wall-mount-thermostat-water-electric-floor-heating-zigbee-driver/87050
  *
@@ -51,12 +51,13 @@
  * ver. 1.4.0  2024-02-28 kkossev  - Groovy lint
  * ver. 1.4.1  2024-10-26 kkossev  - commented out the fingerprints for _TZE200_b6wax7g0 _TZE200_ckud7u2l _TZE200_bvrlmajk _TZE200_rufdtfyv - they are now supported in the new 'Tuya Zigbee TRVs and Thermostats' driver
  * ver. 1.4.2  2025-05-25 kkossev  - HE platfrom version 2.4.1.x decimal preferences patch/workaround.
+ * ver. 1.4.3  2025-12-30 kkossev  - Google Home compatibility bug fix ('valve' attribute renamed to 'valvePosition')
  *
  *                                  TODO: update the community thread top post 
 */
 
-def version() { '1.4.2' }
-def timeStamp() { '2025/05/25 7:47 AM' }
+def version() { '1.4.3' }
+def timeStamp() { '2025/12/30 7:57 PM' }
 
 import groovy.json.*
 import groovy.transform.Field
@@ -73,17 +74,19 @@ import java.util.concurrent.ConcurrentHashMap
 metadata {
     definition (name: 'Tuya Wall Thermostat', namespace: 'kkossev', author: 'Krassimir Kossev', importUrl: 'https://raw.githubusercontent.com/kkossev/Hubitat-Tuya-Wall-Thermostat/development/Tuya-Wall-Thermostat.groovy', singleThreaded: true ) {
         capability 'Actuator'
-        capability 'Refresh'
         capability 'Sensor'
         capability 'Temperature Measurement'
         capability 'Thermostat'
-        capability 'ThermostatHeatingSetpoint'
-        capability 'ThermostatCoolingSetpoint'
-        capability 'ThermostatOperatingState'
-        capability 'ThermostatSetpoint'
-        capability 'ThermostatMode'
+        capability 'Refresh'
+
+        //capability 'ThermostatHeatingSetpoint'
+        //capability 'ThermostatCoolingSetpoint'
+        //capability 'ThermostatOperatingState'
+        //capability 'ThermostatSetpoint'
+        //capability 'ThermostatMode'
         capability 'Battery'
         capability 'HealthCheck'
+
 
         attribute 'childLock', 'enum', ['off', 'on']
         attribute 'windowOpenDetection', 'enum', ['off', 'on']
@@ -91,11 +94,13 @@ metadata {
         attribute 'healthStatus', 'enum', ['offline', 'online', 'unknown']
         attribute 'sensorSelection', 'enum', sensorOptions.values() as List<String>
         attribute 'rtt', 'number'
-        attribute 'valve', 'number'
+        attribute 'valvePosition', 'number' // attribute 'valve' is breaking Google Home compatibility !
         attribute 'windowOpen', 'enum', ['false', 'true']
         attribute 'minHeatingSetpoint', 'number'
         attribute 'maxHeatingSetpoint', 'number'
         attribute 'holidayModeSetpoint', 'number'
+    
+
 
         if (_DEBUG == true) {
             command 'zTest', [
@@ -425,7 +430,7 @@ def parse(String description) {
                             processTuyaBoostModeReport( fncmd )
                             break
                         case 'HY367' :      // Thermostat Mode
-                            def thermostatModes = ['holiday', 'auto', 'heat', 'comfort', 'eco', 'emergency heat', 'temp_auto', 'valve'] // using "heat" and "emergency heat" for consistency, 01 is defined as manual in documentation 05 is defined as Boost in documentation
+                            def thermostatModes = ['holiday', 'auto', 'heat', 'comfort', 'eco', 'emergency heat', 'temp_auto', 'valvePosition'] // using "heat" and "emergency heat" for consistency, 01 is defined as manual in documentation 05 is defined as Boost in documentation
                             def thermostatMode = thermostatModes[fncmd]
                             logDebug "${device.displayName} mode is <b>${thermostatMode}</b> (<b>dp=${dp}</b> fncmd=${fncmd})"
                             sendEvent(name: 'thermostatMode', value: thermostatMode)
@@ -790,7 +795,7 @@ def parse(String description) {
                     }
                     else if (getModelGroup() in ['TRV07']) {
                         logInfo "TRV07 Valve (108) is open: ${fncmd/10}%"
-                        sendEvent(name: 'valve', value: fncmd / 10)
+                        sendEvent(name: 'valvePosition', value: fncmd / 10)
                     }
                     else if (getModelGroup in ['HY367','HY369']) {
                         logInfo "HY367/HY369 eco mode temperature  (dp=${dp}) is: ${fncmd/10.0} (raw:${fncmd})" / (decidegree)
@@ -813,7 +818,7 @@ def parse(String description) {
                     }
                     else if (getModelGroup() in ['HY367', 'HY369']) { // Valve % open report
                         logInfo "HY367/HY369 valve opening percentage  (dp=${dp}) is: ${fncmd} %"
-                        sendEvent(name: 'valve', value: fncmd, unit: '%')
+                        sendEvent(name: 'valvePosition', value: fncmd, unit: '%')
                     }
                     else { // TODO 'HY369'- valveposition  TODO - event!                                              // Valve position in % (also // DP_IDENTIFIER_THERMOSTAT_SCHEDULE_4 0x6D // Not finished)
                         if (settings?.txtEnable) log.info "${device.displayName} (DP=0x6D) valve position is: ${fncmd} (dp=${dp}, fncmd=${fncmd})"
@@ -1378,7 +1383,7 @@ def sendTuyaThermostatMode( mode ) {
                 return null
             }
             break
-        case 'valve':
+        case 'valvePosition':
             if (model in ['HY367']) {
                 dp = '04'
                 fn = '07'
@@ -1586,7 +1591,7 @@ def sendSupportedThermostatModes() {
             supportedThermostatModes = ['off', 'heat', 'auto', 'emergency heat']
             break
         case 'HY367' :  // HY367
-            supportedThermostatModes = ['holiday', 'auto', 'heat', 'comfort', 'eco', 'emergency heat', 'temp_auto', 'valve']
+            supportedThermostatModes = ['holiday', 'auto', 'heat', 'comfort', 'eco', 'emergency heat', 'temp_auto', 'valvePosition']
             break
         default :
             supportedThermostatModes = ['off', 'heat', 'auto']
@@ -2011,7 +2016,7 @@ def initialize() {
     runIn( 3, logInitializeRezults)
 }
 
-def setDeviceLimits() { // for google and amazon compatability
+def setDeviceLimits() { // for google and Amazon compatability
     sendEvent(name:'minHeatingSetpoint', value: settings.minTemp ?: 5, unit: "°C", isStateChange: true)
     sendEvent(name:'maxHeatingSetpoint', value: settings.maxTemp ?: 35, unit: "°C", isStateChange: true)
     updateDataValue('lastRunningMode', 'heat')
